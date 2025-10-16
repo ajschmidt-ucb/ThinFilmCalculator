@@ -215,7 +215,7 @@ class ReflectanceApp(QMainWindow):
         if widget_to_delete:
             widget_to_delete.setParent(None); widget_to_delete.deleteLater()
             for i, widget in enumerate(self.layer_widgets):
-                widget.update_index(i + 1)
+                widget.update_layer_number(i + 1)
                 
     def _get_current_layer_stack(self):
         layers = []
@@ -305,4 +305,5 @@ if __name__ == '__main__':
     app = QApplication(sys.argv)
     main_app = ReflectanceApp()
     main_app.show()
+
     sys.exit(app.exec())
