@@ -68,15 +68,15 @@ def get_refractive_index(material: str, lambda_nm: np.ndarray) -> np.ndarray:
         # Air has n=1, k=0 (complex index is 1 + 0i)
         return np.full_like(lambda_nm, 1.0, dtype=np.complex128)
         
-    # Mapping the material string to its data file (matches MATLAB's switch block)
+    # Mapping the material string to its data file
     file_map = {
         'a-ge': 'a-Ge.txt', 'a-si': 'a-Si.txt', 'poly-si': 'poly-Si.txt',
-        'al': 'Al.txt', 'al2o3': 'Al2O3.txt', 'gaas': 'GaAs.txt',
-        'ge': 'Ge.txt', 'hfn': 'HfN.txt', 'hfo2': 'HfO2.txt',
+        'al': 'Al.txt', 'al2o3': 'Al2O3.txt', 'aln': 'AlN.txt', 'gaas': 'GaAs.txt',
+        'ge': 'Ge.txt', 'hfn': 'HfN.txt', 'hfo2': 'HfO2.txt', 'mgf2': 'MgF2.txt',
         'mgo': 'MgO.txt', 'ruo2': 'RuO2.txt', 'si': 'Si.txt',
-        'si3n4': 'Si3N4.txt', 'sio': 'SiO.txt', 'sio2': 'SiO2.txt',
-        'sno2': 'SnO2.txt', 'tio2': 'TiO2.txt', 'w': 'W.txt',
-        'zno': 'ZnO.txt', 'zro2': 'ZrO2.txt'
+        'si3n4': 'Si3N4.txt', 'si65ge35': 'Si65Ge35.txt', 'si77ge23': 'Si77Ge23.txt', 'si83ge17': 'Si83Ge17.txt', 'si88ge12': 'Si88Ge12.txt', 'si94ge6': 'Si94Ge6.txt', 'sic': 'SiC.txt', 'sio': 'SiO.txt', 'sio2': 'SiO2.txt',
+        'sno2': 'SnO2.txt', 'ta2o5': 'Ta2O5.txt', 'tin': 'TiN.txt', 'tio2': 'TiO2.txt', 'w': 'W.txt',
+        'y2o3': 'Y2O3.txt', 'zno': 'ZnO.txt', 'zro2': 'ZrO2.txt'
     }
     
     if material_lower in file_map:
