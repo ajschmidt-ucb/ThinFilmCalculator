@@ -6,7 +6,7 @@ from scipy.interpolate import interp1d
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QHBoxLayout, QGridLayout, QLineEdit, QPushButton,
                              QLabel, QComboBox, QScrollArea, QGroupBox, QMessageBox, QCheckBox,
-                             QProgressBar) # <-- ADDED QProgressBar
+                             QProgressBar)
 from PyQt6.QtCore import Qt, QLocale, QThread, pyqtSignal, QObject
 from PyQt6.QtGui import QDoubleValidator
 # --- Matplotlib Imports ---
@@ -26,7 +26,7 @@ class ColorChartWorker(QObject):
     """Worker object to perform the intensive 2D color chart calculation."""
     calculation_finished = pyqtSignal(object) # Signal to send result back
     calculation_error = pyqtSignal(str) # Signal for errors
-    progress_update = pyqtSignal(int) # <-- ADDED Signal to update progress
+    progress_update = pyqtSignal(int) # Signal to update progress
 
     def __init__(self, base_layers, lambda_full_vis, sweep_params, parent=None):
         super().__init__(parent)
@@ -38,7 +38,7 @@ class ColorChartWorker(QObject):
         """Performs the 2D sweep (Thickness vs. Angle) calculation."""
         try:
             # Unpack parameters
-            thick_layer_index = self.sweep_params['thick_layer_index']
+            thick_layer_index = self.sweep_params['thick_layer_index'] # 0-based index
             thick_values = self.sweep_params['thick_values']
             angle_values = self.sweep_params['angle_values']
             
@@ -50,15 +50,17 @@ class ColorChartWorker(QObject):
             for i, angle in enumerate(angle_values):
                 # Calculate and emit progress based on angle sweep completion
                 progress = int((i + 1) * 100 / total_angles)
-                self.progress_update.emit(progress) # <-- EMIT PROGRESS
+                self.progress_update.emit(progress) # EMIT PROGRESS
 
                 row_colors = []
+                # IMPORTANT: Need to copy the layers for each outer loop iteration
                 current_layers_angle = [list(layer) for layer in self.base_layers]
 
                 # Thickness sweep is X-axis (Inner Loop)
                 for thick in thick_values:
-                    # Apply the swept thickness
+                    # Apply the swept thickness. Need another copy to avoid modifying the 'angle' base layer setup
                     current_layers_thick_angle = [list(layer) for layer in current_layers_angle]
+                    # Uses the corrected 0-based index: thick_layer_index
                     current_layers_thick_angle[thick_layer_index][1] = thick
 
                     # Calculate R for this Angle and this Thickness
@@ -108,7 +110,7 @@ class ReflectanceApp(QMainWindow):
         self.polarization_options = ['s (TE)', 'p (TM)', 'Mixed (s+p)/2']
 
         self.layer_widgets = []
-        self.worker_thread = None # <-- Thread reference
+        self.worker_thread = None # Thread reference
 
         self._init_ui()
         self._load_initial_layers()
@@ -148,7 +150,7 @@ class ReflectanceApp(QMainWindow):
 
         self._init_plot()
 
-    # --- GUI Creation Methods (omitted identical code for brevity) ---
+    # --- GUI Creation Methods ---
     def _create_calc_param_group(self):
         group = QGroupBox("Calculation Parameters"); layout = QGridLayout(); group.setLayout(layout)
         self.h_lambda_start = QLineEdit(str(self.DEFAULT_LAMBDA_START)); self.h_lambda_end = QLineEdit(str(self.DEFAULT_LAMBDA_END)); self.h_angle = QLineEdit(str(self.DEFAULT_ANGLE_DEG)); self.h_pol = QComboBox(); self.h_pol.addItems(self.polarization_options)
@@ -229,7 +231,7 @@ class ReflectanceApp(QMainWindow):
         
         return group
     
-    # --- Other UI methods (omitted identical code for brevity) ---
+    # --- Other UI methods ---
     def _init_plot(self):
         self.ax.set_title('Spectral Reflectance'); self.ax.set_xlabel('Wavelength (nm)'); self.ax.set_ylabel('Reflectance (R)')
         self.ax.set_xlim(self.DEFAULT_LAMBDA_START, self.DEFAULT_LAMBDA_END); self.ax.set_ylim(0, 1.0); self.ax.grid(True); self.canvas.draw()
@@ -256,8 +258,6 @@ class ReflectanceApp(QMainWindow):
         return layers
     
     # --- Calculation Callbacks ---
-
- # Inside ReflectanceApp class
 
     def _plot_button_callback(self):
         """1D Reflectance Plot (Quick, stays on main thread)."""
@@ -341,19 +341,28 @@ class ReflectanceApp(QMainWindow):
             raise ValueError("Layer stack is empty. Cannot generate color chart.")
 
         # --- Get Thickness Sweep Parameters ---
-        thick_layer_index = int(self.h_sweep_layer.text()) - 1
+        total_layers = len(base_layers)
+        
+        # READ: The user's visual layer number (1 to N)
+        user_layer_number = int(self.h_sweep_layer.text()) 
+        
+        # CORRECTION APPLIED: Map reversed user-numbering (1=bottom, N=top) 
+        # to the 0-based list index (0=top, N-1=bottom).
+        thick_layer_index = total_layers - user_layer_number
+
         thick_start = float(self.h_sweep_start.text())
         thick_end = float(self.h_sweep_end.text())
         thick_step = float(self.h_sweep_step.text())
         thick_values = np.arange(thick_start, thick_end + thick_step / 2, thick_step)
 
-        if thick_layer_index < 0 or thick_layer_index >= len(base_layers):
-            raise ValueError(f"Thickness Sweep Layer Index must be between 1 and {len(base_layers)}.")
+        # VALIDATION: Check the user's visual number
+        if user_layer_number < 1 or user_layer_number > total_layers:
+            raise ValueError(f"Thickness Sweep Layer Index must be between 1 (Bottom Layer) and {total_layers} (Top Layer).")
         if thick_start < 0 or thick_step <= 0 or thick_start >= thick_end:
             raise ValueError("Thickness sweep parameters are invalid.")
 
         swept_material = base_layers[thick_layer_index][0]
-        thick_layer_text = str(thick_layer_index + 1)
+        thick_layer_text = str(user_layer_number) # Use the user's visual number for plot title
 
         # --- Get Angle Sweep Parameters ---
         angle_start = float(self.h_sweep_angle_start.text())
@@ -366,7 +375,7 @@ class ReflectanceApp(QMainWindow):
 
         # Consolidate sweep parameters
         sweep_params = {
-            'thick_layer_index': thick_layer_index,
+            'thick_layer_index': thick_layer_index, # 0-based index for the worker
             'thick_values': thick_values,
             'thick_step': thick_step,
             'thick_start': thick_start,
@@ -376,14 +385,14 @@ class ReflectanceApp(QMainWindow):
             'angle_start': angle_start,
             'angle_end': angle_end,
             'swept_material': swept_material,
-            'thick_layer_text': thick_layer_text
+            'thick_layer_text': thick_layer_text # 1-based number for plot title
         }
 
         # Disable button, show status and progress bar
         self.h_chart_btn.setEnabled(False)
         self.h_chart_status_label.setText("Calculating Color Chart...")
         self.h_progress_bar.setValue(0)
-        self.h_progress_bar.setVisible(True) # <-- SHOW PROGRESS BAR
+        self.h_progress_bar.setVisible(True) # SHOW PROGRESS BAR
 
         # Create and start the worker thread
         self.worker_thread = QThread()
@@ -395,7 +404,7 @@ class ReflectanceApp(QMainWindow):
         self.worker_thread.started.connect(self.worker.run_2d_sweep)
         self.worker.calculation_finished.connect(self._handle_2d_sweep_result)
         self.worker.calculation_error.connect(self._handle_worker_error)
-        self.worker.progress_update.connect(self._update_progress_bar) # <-- CONNECT PROGRESS SIGNAL
+        self.worker.progress_update.connect(self._update_progress_bar) # CONNECT PROGRESS SIGNAL
         self.worker.calculation_finished.connect(self.worker_thread.quit) # Stop thread on success
         self.worker.calculation_error.connect(self.worker_thread.quit) # Stop thread on error
         self.worker_thread.finished.connect(self._thread_cleanup)
@@ -408,7 +417,6 @@ class ReflectanceApp(QMainWindow):
 
     def _handle_2d_sweep_result(self, result):
         """Called when the worker thread finishes successfully."""
-        # QMessageBox.information(self, "Calculation Complete", "2D Color Chart calculation finished.")
         
         color_data_array = result['color_data']
         params = result['params']
@@ -434,8 +442,8 @@ class ReflectanceApp(QMainWindow):
         
         self.h_chart_btn.setText("Generate Color Chart")
         self.h_chart_btn.setEnabled(True)
-        self.h_progress_bar.setVisible(False) # <-- HIDE PROGRESS BAR
-        self.h_chart_status_label.setText("") # <-- CLEAR STATUS LABEL
+        self.h_progress_bar.setVisible(False) # HIDE PROGRESS BAR
+        self.h_chart_status_label.setText("") # CLEAR STATUS LABEL
 
 
     def _generate_1d_color_chart_callback(self, is_thickness_sweep):
@@ -445,30 +453,69 @@ class ReflectanceApp(QMainWindow):
         base_layers = self._get_current_layer_stack()
         lambda_full_vis = np.arange(380.0, 781.0, 1.0)
         if not base_layers: raise ValueError("Layer stack is empty. Cannot generate color chart.")
+            
         if is_thickness_sweep:
-            sweep_type = 'Thickness'; sweep_layer_index = int(self.h_sweep_layer.text()) - 1; sweep_start = float(self.h_sweep_start.text()); sweep_end = float(self.h_sweep_end.text()); sweep_step = float(self.h_sweep_step.text()); theta_inc_deg = float(self.h_angle.text())
-            if sweep_layer_index < 0 or sweep_layer_index >= len(base_layers): raise ValueError(f"Sweep Layer Index must be between 1 and {len(base_layers)}.");
-            if sweep_start < 0 or sweep_step <= 0 or sweep_start >= sweep_end: raise ValueError("Thickness sweep parameters are invalid.")
-            swept_values = np.arange(sweep_start, sweep_end + sweep_step / 2, sweep_step); swept_material = base_layers[sweep_layer_index][0]; fixed_value = theta_inc_deg; layer_number = sweep_layer_index + 1
+            sweep_type = 'Thickness'
+            total_layers = len(base_layers) # Get total layers
+            
+            # READ: The user's visual layer number (1 to N)
+            user_layer_number = int(self.h_sweep_layer.text())
+            
+            # CORRECTION APPLIED: Map reversed user-numbering (1=bottom, N=top) 
+            # to the 0-based list index (0=top, N-1=bottom).
+            sweep_layer_index = total_layers - user_layer_number
+            
+            sweep_start = float(self.h_sweep_start.text())
+            sweep_end = float(self.h_sweep_end.text())
+            sweep_step = float(self.h_sweep_step.text())
+            theta_inc_deg = float(self.h_angle.text())
+            
+            # Validation using the user's visual layer number
+            if user_layer_number < 1 or user_layer_number > total_layers: 
+                raise ValueError(f"Thickness Sweep Layer Index must be between 1 (Bottom Layer) and {total_layers} (Top Layer).");
+                
+            if sweep_start < 0 or sweep_step <= 0 or sweep_start >= sweep_end: 
+                raise ValueError("Thickness sweep parameters are invalid.")
+                
+            swept_values = np.arange(sweep_start, sweep_end + sweep_step / 2, sweep_step)
+            swept_material = base_layers[sweep_layer_index][0]
+            fixed_value = theta_inc_deg
+            layer_number = user_layer_number # Use visual number for plotting/titles
+            
         else:
-            sweep_type = 'Angle'; sweep_start = float(self.h_sweep_angle_start.text()); sweep_end = float(self.h_sweep_angle_end.text()); sweep_step = float(self.h_sweep_angle_step.text()); sweep_layer_index = 0; fixed_value = base_layers[sweep_layer_index][1]
-            if sweep_start < 0 or sweep_end > 90 or sweep_step <= 0 or sweep_start >= sweep_end: raise ValueError("Angle sweep values must be between 0 and 90 degrees, and step must be positive.")
-            swept_values = np.arange(sweep_start, sweep_end + sweep_step / 2, sweep_step); swept_material = "Incident Angle"; layer_number = sweep_layer_index + 1
+            sweep_type = 'Angle'
+            sweep_start = float(self.h_sweep_angle_start.text())
+            sweep_end = float(self.h_sweep_angle_end.text())
+            sweep_step = float(self.h_sweep_angle_step.text())
+            # For angle sweep, we use the first layer's thickness for context in the title
+            sweep_layer_index = 0 
+            fixed_value = base_layers[sweep_layer_index][1] # Get thickness of Layer 1 for context
+            
+            if sweep_start < 0 or sweep_end > 90 or sweep_step <= 0 or sweep_start >= sweep_end: 
+                raise ValueError("Angle sweep values must be between 0 and 90 degrees, and step must be positive.")
+                
+            swept_values = np.arange(sweep_start, sweep_end + sweep_step / 2, sweep_step)
+            swept_material = "Incident Angle"
+            layer_number = sweep_layer_index + 1 # 1-based layer index for title context
 
         R_sRGB_chart = []
         for value in swept_values:
             if sweep_type == 'Thickness':
-                current_layers = [list(layer) for layer in base_layers]; current_layers[sweep_layer_index][1] = value
+                # Use the corrected 0-based index for modification
+                current_layers = [list(layer) for layer in base_layers]
+                current_layers[sweep_layer_index][1] = value 
                 Rs, Rp = calculate_reflectance(current_layers, self.DEFAULT_SUBSTRATE, lambda_full_vis, theta_inc_deg)
             elif sweep_type == 'Angle':
                 Rs, Rp = calculate_reflectance(base_layers, self.DEFAULT_SUBSTRATE, lambda_full_vis, value)
-            R_spectrum = (Rs + Rp) / 2.0; R_sRGB, _, _ = calculate_colorimetry(R_spectrum, lambda_full_vis); R_sRGB_chart.append(R_sRGB)
+                
+            R_spectrum = (Rs + Rp) / 2.0
+            R_sRGB, _, _ = calculate_colorimetry(R_spectrum, lambda_full_vis)
+            R_sRGB_chart.append(R_sRGB)
 
         self._plot_1d_color_chart(np.array(R_sRGB_chart), swept_values, sweep_step, swept_material, sweep_type, fixed_value, layer_number)
         
     def _plot_1d_color_chart(self, sRGB_chart, swept_values, sweep_step, swept_material, sweep_type, fixed_value, layer_number):
         """Plots the thickness or angle sweep color chart (1D: single row of color) in a new Matplotlib figure."""
-        # ... (1D plot logic) ...
         if sweep_type == 'Thickness':
             window_title = f"Color Chart Sweep: {swept_material} (Layer {layer_number}) at {fixed_value:.0f}°"
             x_label = f"Thickness (nm) of Layer {layer_number}"
@@ -485,14 +532,9 @@ class ReflectanceApp(QMainWindow):
         chart_ax.set_title(window_title); chart_ax.set_xlabel(x_label); fig.subplots_adjust(bottom=0.20)
         canvas.draw(); chart_window.show()
 
-    # Inside ReflectanceApp class
-
-# Inside ReflectanceApp class
-
     def _plot_2d_color_chart(self, sRGB_chart_2d, thick_values, thick_step, thick_start, thick_end, angle_values, angle_step, angle_start, angle_end, swept_material, layer_number):
         """Plots the 2D color chart (thickness vs angle map) in a new Matplotlib figure."""
         
-        # ... (Plot setup and imshow logic) ...
         window_title = f"2D Color Chart: {swept_material} (Layer {layer_number}) vs Incident Angle"
         chart_window = QMainWindow(self); chart_window.setWindowTitle(window_title)
         fig = Figure(); canvas = FigureCanvas(fig); chart_window.setCentralWidget(canvas); chart_window.resize(800, 300)
@@ -528,11 +570,11 @@ class ReflectanceApp(QMainWindow):
             for tick in angle_ticks:
                 # Check for small floating point errors when adding ticks near boundaries
                 if angle_start - 1e-6 <= tick <= angle_end + 1e-6:
-                     final_ticks.add(tick)
+                    final_ticks.add(tick)
             
             final_ticks = sorted(list(final_ticks))
-        
-        chart_ax.set_yticks(final_ticks) # <-- DYNAMICALLY CALCULATED Ticks
+            
+        chart_ax.set_yticks(final_ticks) # DYNAMICALLY CALCULATED Ticks
 
         # 4. Set Labels and Draw
         chart_ax.set_title(window_title); 
