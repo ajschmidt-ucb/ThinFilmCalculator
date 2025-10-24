@@ -6,9 +6,9 @@ from scipy.interpolate import interp1d
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QHBoxLayout, QGridLayout, QLineEdit, QPushButton,
                              QLabel, QComboBox, QScrollArea, QGroupBox, QMessageBox, QCheckBox,
-                             QProgressBar)
+                             QProgressBar, QFileDialog) # QFileDialog added for saving
 from PyQt6.QtCore import Qt, QLocale, QThread, pyqtSignal, QObject
-from PyQt6.QtGui import QDoubleValidator
+from PyQt6.QtGui import QDoubleValidator, QAction # QAction added for menu items
 # --- Matplotlib Imports ---
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
@@ -20,6 +20,7 @@ from physics_engine.colorimetry import calculate_colorimetry
 
 # ==============================================================================
 # 1. WORKER CLASS: Runs the heavy computation in a separate thread
+# ... (ColorChartWorker remains unchanged) ...
 # ==============================================================================
 
 class ColorChartWorker(QObject):
@@ -115,6 +116,7 @@ class ReflectanceApp(QMainWindow):
         self._init_ui()
         self._load_initial_layers()
 
+    # ... (center method remains unchanged) ...
     def center(self):
         """Centers the main window on the primary screen's available geometry."""
         screen_geo = self.screen().availableGeometry()
@@ -122,9 +124,13 @@ class ReflectanceApp(QMainWindow):
         center_point = screen_geo.center()
         window_geo.moveCenter(center_point)
         self.move(window_geo.topLeft())
-
+    
     def _init_ui(self):
         """Sets up the main layout and all controls."""
+        
+        # --- ADDED: Create Menu Bar ---
+        self._create_menu_bar() 
+        
         main_widget = QWidget()
         self.setCentralWidget(main_widget)
         main_layout = QHBoxLayout(main_widget)
@@ -150,7 +156,152 @@ class ReflectanceApp(QMainWindow):
 
         self._init_plot()
 
-    # --- GUI Creation Methods ---
+    # --- UPDATED: Menu Bar Creation and Callbacks ---
+    def _create_menu_bar(self):
+        """Creates the File and Help menus for the main window."""
+        menu_bar = self.menuBar()
+
+        # --- File Menu ---
+        file_menu = menu_bar.addMenu("&File")
+
+        # Save Spectral Reflectance Plot Action
+        save_action = QAction("&Save Spectral Plot...", self)
+        save_action.setShortcut("Ctrl+S") # ADDED SHORTCUT
+        save_action.setStatusTip("Save the current spectral reflectance plot as an image file.")
+        save_action.triggered.connect(self._save_plot_callback)
+        file_menu.addAction(save_action)
+
+        # Exit Action
+        exit_action = QAction("&Exit", self)
+        exit_action.setShortcut("Ctrl+Q")
+        exit_action.setStatusTip("Exit the application")
+        exit_action.triggered.connect(self.close)
+        file_menu.addAction(exit_action)
+
+        # --- Help Menu ---
+        help_menu = menu_bar.addMenu("&Help")
+
+        # About Action
+        about_action = QAction("&About", self)
+        about_action.triggered.connect(self._about_callback)
+        help_menu.addAction(about_action)
+
+        # NEW: License Action
+        license_action = QAction("&License", self)
+        license_action.triggered.connect(self._license_callback)
+        help_menu.addAction(license_action)
+        
+    # --- NEW: License Callback ---
+    def _license_callback(self):
+        """Displays the MIT License information in a QMessageBox."""
+        license_text = """
+MIT License
+
+Copyright (c) 2025 ajschmidt-ucb
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF 
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY 
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+"""
+        QMessageBox.about(
+            self, 
+            "Software License (MIT)",
+            license_text.strip()
+        )
+
+    # --- NEW: Menu Bar for Chart Windows ---
+    def _create_chart_menu_bar(self, chart_window, figure):
+        """Creates a simplified File menu for the color chart window."""
+        menu_bar = chart_window.menuBar()
+        file_menu = menu_bar.addMenu("&File")
+
+        # Save Color Chart Action
+        save_chart_action = QAction("&Save Color Chart...", chart_window)
+        save_chart_action.setShortcut("Ctrl+S") # ADDED SHORTCUT
+        save_chart_action.setStatusTip("Save the color chart as an image file.")
+        # We need to pass the figure and the chart window to the saving function
+        save_chart_action.triggered.connect(lambda: self._save_chart_callback(figure, chart_window)) 
+        file_menu.addAction(save_chart_action)
+        
+        # Quit Chart Window Action
+        quit_chart_action = QAction("&Close Window", chart_window)
+        quit_chart_action.setShortcut("Ctrl+Q") # ADDED SHORTCUT
+        quit_chart_action.setStatusTip("Close the color chart window")
+        # Connect to the chart window's close method
+        quit_chart_action.triggered.connect(chart_window.close) 
+        file_menu.addAction(quit_chart_action)
+        
+    def _save_plot_callback(self):
+        """Opens a file dialog to save the current Matplotlib plot (main window)."""
+        if not self.figure.axes: # Check if the plot has been initialized or cleared
+            QMessageBox.warning(self, "Save Error", "No spectral plot has been generated yet.")
+            return
+
+        # QFileDialog.getSaveFileName returns a tuple: (filename, filter)
+        # We allow common image formats
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save Spectral Reflectance Plot",
+            "spectral_plot.png", # Default filename
+            "PNG Image (*.png);;JPEG Image (*.jpg *.jpeg);;All Files (*)"
+        )
+
+        if file_path:
+            try:
+                # Save the figure to the chosen path
+                self.figure.savefig(file_path, bbox_inches='tight', dpi=300)
+                QMessageBox.information(self, "Success", f"Plot successfully saved to:\n{file_path}")
+            except Exception as e:
+                QMessageBox.critical(self, "Save Error", f"Could not save plot:\n{e}")
+
+    # --- NEW: Save Chart Callback for Chart Windows ---
+    def _save_chart_callback(self, figure, chart_window):
+        """Opens a file dialog to save the Matplotlib chart figure (chart windows)."""
+        
+        # QFileDialog.getSaveFileName returns a tuple: (filename, filter)
+        file_path, _ = QFileDialog.getSaveFileName(
+            chart_window, # Parent is the chart window
+            "Save Color Chart",
+            "color_chart.png", # Default filename
+            "PNG Image (*.png);;JPEG Image (*.jpg *.jpeg);;All Files (*)"
+        )
+
+        if file_path:
+            try:
+                # Save the figure to the chosen path
+                figure.savefig(file_path, bbox_inches='tight', dpi=300)
+                QMessageBox.information(chart_window, "Success", f"Color chart successfully saved to:\n{file_path}")
+            except Exception as e:
+                QMessageBox.critical(chart_window, "Save Error", f"Could not save color chart:\n{e}")
+
+    def _about_callback(self):
+        """Displays the 'About' information in a QMessageBox."""
+        QMessageBox.about(
+            self, 
+            "About Thin-Film Reflectance Calculator",
+            "<h2>Thin-Film Reflectance Calculator</h2>"
+            "<p>Version 1.2.0</p>"
+            "<p>Developed by: Alexander J. Schmidt, PhD Electrical Engineering and Computer Sciences University of California, Berkeley Prof. Salahuddin Laboratory and Marvell Nanofabrication Laboratory</p>"
+            "<p>A Python-based desktop application for calculating the spectral reflectance and colorimetric properties of multi-layer thin-film stacks. It implements Parratt Recursion and the Fresnel Equations for precise optical simulation.</p>"
+            "<p>Built using PyQt6 and Matplotlib.</p>"
+            "<p>Source code can be found on GitHub here: <a href='https://github.com/ajschmidt-ucb/ThinFilmCalculator'>https://github.com/ajschmidt-ucb/ThinFilmCalculator</a></p>"
+        )
+
+    # ... (The rest of the class methods remain unchanged, including _create_calc_param_group, 
+    # _create_stack_panel_group, _create_color_output_group, _create_color_chart_group, 
+    # _init_plot, layer management methods, and all calculation callbacks) ...
+
+    # --- GUI Creation Methods (unchanged) ---
     def _create_calc_param_group(self):
         group = QGroupBox("Calculation Parameters"); layout = QGridLayout(); group.setLayout(layout)
         self.h_lambda_start = QLineEdit(str(self.DEFAULT_LAMBDA_START)); self.h_lambda_end = QLineEdit(str(self.DEFAULT_LAMBDA_END)); self.h_angle = QLineEdit(str(self.DEFAULT_ANGLE_DEG)); self.h_pol = QComboBox(); self.h_pol.addItems(self.polarization_options)
@@ -182,7 +333,7 @@ class ReflectanceApp(QMainWindow):
         thick_validator = QDoubleValidator(0.0, 10000.0, 2, self); angle_validator = QDoubleValidator(0.0, 90.0, 2, self)
         for validator in [thick_validator, angle_validator]: validator.setLocale(QLocale(QLocale.Language.English, QLocale.Country.AnyCountry))
 
-        self.h_sweep_chk = QCheckBox("Thickness Sweep"); self.h_sweep_chk.setChecked(True)
+        self.h_sweep_chk = QCheckBox("Thickness"); self.h_sweep_chk.setChecked(True)
         self.h_sweep_layer = QLineEdit("1")
         self.h_sweep_start = QLineEdit("0.0"); self.h_sweep_end = QLineEdit("500.0"); self.h_sweep_step = QLineEdit("1.0")
         self.h_sweep_start.setValidator(thick_validator); self.h_sweep_end.setValidator(thick_validator); self.h_sweep_step.setValidator(thick_validator)
@@ -192,7 +343,7 @@ class ReflectanceApp(QMainWindow):
         layout.addWidget(self.h_sweep_start, 1, 1); layout.addWidget(QLabel("-"), 1, 2, alignment=Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.h_sweep_end, 1, 3); layout.addWidget(QLabel("step"), 1, 4, alignment=Qt.AlignmentFlag.AlignRight); layout.addWidget(self.h_sweep_step, 1, 5)
 
-        self.h_sweep_angle_chk = QCheckBox("Angle Sweep"); self.h_sweep_angle_chk.setChecked(False)
+        self.h_sweep_angle_chk = QCheckBox("Angle"); self.h_sweep_angle_chk.setChecked(False)
         self.h_sweep_angle_start = QLineEdit("0.0"); self.h_sweep_angle_end = QLineEdit("90.0"); self.h_sweep_angle_step = QLineEdit("1.0")
         self.h_sweep_angle_start.setValidator(angle_validator); self.h_sweep_angle_end.setValidator(angle_validator); self.h_sweep_angle_step.setValidator(angle_validator)
 
@@ -206,7 +357,7 @@ class ReflectanceApp(QMainWindow):
         self.h_chart_btn = chart_btn # Keep a reference to disable during calculation
         layout.addWidget(chart_btn, 4, 0, 1, 6)
         
-        # --- ADDED PROGRESS BAR AND STATUS LABEL ---
+        # --- PROGRESS BAR AND STATUS LABEL ---
         self.h_chart_status_label = QLabel("")
         self.h_progress_bar = QProgressBar()
         self.h_progress_bar.setRange(0, 100)
@@ -257,7 +408,7 @@ class ReflectanceApp(QMainWindow):
             if thickness > 0: layers.append([material, thickness])
         return layers
     
-    # --- Calculation Callbacks ---
+    # --- Calculation Callbacks (unchanged) ---
 
     def _plot_button_callback(self):
         """1D Reflectance Plot (Quick, stays on main thread)."""
@@ -318,6 +469,8 @@ class ReflectanceApp(QMainWindow):
             
         except Exception as e:
             QMessageBox.critical(self, "Calculation Error", f"Error:\n{e}")
+
+    # ... (Rest of the worker-related and 2D sweep methods remain unchanged) ...
 
     def _generate_color_chart_callback(self):
         """Determines sweep type and initiates calculation."""
@@ -522,23 +675,46 @@ class ReflectanceApp(QMainWindow):
         else:
             window_title = f"Color Chart Sweep: Angle (Thickness of Layer {layer_number} fixed at {fixed_value:.1f} nm)"
             x_label = "Incident Angle (deg)"
-        chart_window = QMainWindow(self); chart_window.setWindowTitle(window_title)
-        fig = Figure(); canvas = FigureCanvas(fig); chart_window.setCentralWidget(canvas); chart_window.resize(800, 300)
-        chart_ax = fig.add_subplot(111); color_matrix_for_display = sRGB_chart[np.newaxis, :, :] / 255.0
+        
+        chart_window = QMainWindow(self); 
+        chart_window.setWindowTitle(window_title)
+        
+        # Create Menu Bar for the chart window
+        fig = Figure(); 
+        self._create_chart_menu_bar(chart_window, fig) # PASS THE FIGURE AND WINDOW
+        
+        canvas = FigureCanvas(fig); 
+        chart_window.setCentralWidget(canvas); 
+        chart_window.resize(800, 300)
+        
+        chart_ax = fig.add_subplot(111); 
+        color_matrix_for_display = sRGB_chart[np.newaxis, :, :] / 255.0
         sweep_end_boundary = swept_values[-1] + sweep_step
         chart_ax.imshow(color_matrix_for_display, aspect='auto', extent=[swept_values[0], sweep_end_boundary, 0, 1])
         chart_ax.set_yticks([]); chart_ax.set_ylim(0, 1)
         chart_ax.set_xlim(swept_values[0], sweep_end_boundary)
         chart_ax.set_title(window_title); chart_ax.set_xlabel(x_label); fig.subplots_adjust(bottom=0.20)
-        canvas.draw(); chart_window.show()
+        canvas.draw(); 
+        chart_window.show()
 
     def _plot_2d_color_chart(self, sRGB_chart_2d, thick_values, thick_step, thick_start, thick_end, angle_values, angle_step, angle_start, angle_end, swept_material, layer_number):
         """Plots the 2D color chart (thickness vs angle map) in a new Matplotlib figure."""
         
         window_title = f"2D Color Chart: {swept_material} (Layer {layer_number}) vs Incident Angle"
-        chart_window = QMainWindow(self); chart_window.setWindowTitle(window_title)
-        fig = Figure(); canvas = FigureCanvas(fig); chart_window.setCentralWidget(canvas); chart_window.resize(800, 300)
-        chart_ax = fig.add_subplot(111); color_matrix_for_display = sRGB_chart_2d / 255.0
+        
+        chart_window = QMainWindow(self); 
+        chart_window.setWindowTitle(window_title)
+        
+        # ADDED: Create Menu Bar for the chart window
+        fig = Figure(); 
+        self._create_chart_menu_bar(chart_window, fig) # PASS THE FIGURE AND WINDOW
+        
+        canvas = FigureCanvas(fig); 
+        chart_window.setCentralWidget(canvas); 
+        chart_window.resize(800, 300)
+        
+        chart_ax = fig.add_subplot(111); 
+        color_matrix_for_display = sRGB_chart_2d / 255.0
         thick_end_boundary = thick_values[-1] + thick_step; angle_end_boundary = angle_values[-1] + angle_step
         
         # 1. Plot the color map
@@ -581,7 +757,8 @@ class ReflectanceApp(QMainWindow):
         chart_ax.set_xlabel(f"Thickness (nm) of Layer {layer_number} ({swept_material})"); 
         chart_ax.set_ylabel("Incident Angle (°)")
         fig.subplots_adjust(left=0.15, right=0.95, top=0.9, bottom=0.15)
-        canvas.draw(); chart_window.show()
+        canvas.draw(); 
+        chart_window.show()
 
 
 if __name__ == '__main__':
